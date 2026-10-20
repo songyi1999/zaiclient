@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zai.app.BuildConfig
 import com.zai.app.net.Updater
 import kotlinx.coroutines.launch
 import java.io.File
@@ -137,3 +140,62 @@ suspend fun silentCheck(): Updater.Release? = runCatching {
     val latest = Updater.fetchLatest()
     if (Updater.isNewer(latest.version)) latest else null
 }.getOrNull()
+
+/**
+ * 「检查更新」列表行：显示当前版本 + "查看最新版本"按钮 + 结果弹窗。
+ * 「发现」页和「我的」页共用。
+ */
+@Composable
+fun UpdateCheckRow() {
+    var checking by remember { mutableStateOf(false) }
+    var upToDate by remember { mutableStateOf(false) }
+    var checkError by remember { mutableStateOf<String?>(null) }
+    var newRelease by remember { mutableStateOf<Updater.Release?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    ListItem(
+        headlineContent = { Text("检查更新") },
+        supportingContent = { Text("当前 v${BuildConfig.VERSION_NAME}") },
+        trailingContent = {
+            OutlinedButton(onClick = {
+                if (checking) return@OutlinedButton
+                checking = true
+                upToDate = false
+                checkError = null
+                scope.launch {
+                    try {
+                        val latest = Updater.fetchLatest()
+                        if (Updater.isNewer(latest.version)) newRelease = latest else upToDate = true
+                    } catch (e: Exception) {
+                        checkError = e.message ?: "检查更新失败"
+                    } finally {
+                        checking = false
+                    }
+                }
+            }, enabled = !checking) {
+                Text(if (checking) "检查中…" else "查看最新版本")
+            }
+        },
+    )
+
+    if (upToDate) {
+        AlertDialog(
+            onDismissRequest = { upToDate = false },
+            title = { Text("已是最新版本") },
+            text = { Text("当前 v${BuildConfig.VERSION_NAME} 已是最新发布版本。") },
+            confirmButton = { TextButton(onClick = { upToDate = false }) { Text("好的") } },
+        )
+    }
+    if (checkError != null && newRelease == null) {
+        AlertDialog(
+            onDismissRequest = { checkError = null },
+            title = { Text("检查更新失败") },
+            text = { Text(checkError!!) },
+            confirmButton = { TextButton(onClick = { checkError = null }) { Text("好的") } },
+        )
+    }
+    newRelease?.let { release ->
+        UpdateDialog(release = release, onDismiss = { newRelease = null })
+    }
+}

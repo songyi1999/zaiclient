@@ -7,27 +7,35 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val Blue = Color(0xFF60A5FA)
+private val Emerald = Color(0xFF34D399)
 private val Amber = Color(0xFFFBBF24)
 
+// WorkBuddy 风格：近黑背景 + 深灰卡片 + 翠绿强调
 private val DarkScheme = darkColorScheme(
-    primary = Blue,
-    onPrimary = Color(0xFF0B1E3A),
+    primary = Emerald,
+    onPrimary = Color(0xFF00351E),
     secondary = Amber,
-    background = Color(0xFF0B1220),
-    onBackground = Color(0xFFE2E8F0),
-    surface = Color(0xFF111A2C),
-    onSurface = Color(0xFFE2E8F0),
-    surfaceVariant = Color(0xFF1E293B),
-    onSurfaceVariant = Color(0xFF94A3B8),
+    background = Color(0xFF121214),
+    onBackground = Color(0xFFE6E6E9),
+    surface = Color(0xFF1B1B1E),
+    onSurface = Color(0xFFE6E6E9),
+    surfaceVariant = Color(0xFF26262A),
+    onSurfaceVariant = Color(0xFF9A9AA3),
+    outline = Color(0xFF4A4A52),
     error = Color(0xFFEF4444),
 )
 
 private val LightScheme = lightColorScheme(
-    primary = Color(0xFF2563EB),
+    primary = Color(0xFF059669),
+    onPrimary = Color.White,
     secondary = Color(0xFFB45309),
-    background = Color(0xFFF8FAFC),
-    surface = Color(0xFFFFFFFF),
+    background = Color(0xFFF4F5F6),
+    onBackground = Color(0xFF191A1C),
+    surface = Color.White,
+    onSurface = Color(0xFF191A1C),
+    surfaceVariant = Color(0xFFE9EAEC),
+    onSurfaceVariant = Color(0xFF5F6368),
+    outline = Color(0xFFC4C7CC),
 )
 
 @Composable

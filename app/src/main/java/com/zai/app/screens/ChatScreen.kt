@@ -76,7 +76,9 @@ import com.zai.app.ui.PendingInput
 import com.zai.app.ui.PlusMenuSheet
 import com.zai.app.ui.rememberAttachmentPicker
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -210,6 +212,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val content = if (skill != null) "请使用技能「${skill.name}」完成以下任务：\n$raw" else raw
         selectedSkill.value = null
 
+        // 轮询兜底的基线：发送前的消息数（服务端落库后比它多 2 条 = 本轮完成）
+        val baselineCount = messages.value.size
+        val sentAt = System.currentTimeMillis()
+
         messages.value = messages.value + listOf(
             Message(id = "local-user-${messages.value.size}", role = "USER", content = content, createdAt = ""),
             Message(id = "local-assistant", role = "ASSISTANT", content = "", createdAt = "", pending = true),
@@ -257,6 +263,75 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 ConvosStore.refresh()
             }
         }
+        startPollingFallback(sentAt, baselineCount)
+    }
+
+    /**
+     * 流式通道兜底：部分手机网络（运营商对明文 HTTP 的代理）会缓冲 SSE，
+     * 表现为"一直在思考中"但服务端其实已完整生成（历史记录里能看到）。
+     * 发送 6 秒后仍无内容时改为每 4 秒拉一次服务端消息，
+     * 一旦发现本轮回复已落库就直接完整展示。
+     */
+    private fun startPollingFallback(sentAt: Long, baselineCount: Int) {
+        viewModelScope.launch {
+            delay(6000)
+            var waited = 6
+            while (isActive && streaming.value && waited < 300) {
+                // SSE 已经出字（或已结束）→ 轮询退出
+                val cur = messages.value.lastOrNull()
+                if (cur == null || !(cur.role == "ASSISTANT" && cur.pending)) break
+                if (cur.content.isNotEmpty()) break
+
+                streamInfo.value = "流式通道未响应，正在获取回复…（${waited}s）"
+                runCatching {
+                    val convId = conversationId
+                        ?: Api.conversations()
+                            .firstOrNull { it.updatedAtMillis >= sentAt - 60_000 }
+                            ?.id
+                            ?.also { conversationId = it }
+                    if (convId != null) {
+                        val server = Api.messages(convId)
+                            .filter { it.role == "USER" || it.role == "ASSISTANT" }
+                        val lastMsg = server.lastOrNull()
+                        val isThisTurn = server.size >= baselineCount + 2 &&
+                            lastMsg?.role == "ASSISTANT" &&
+                            lastMsg.createdAtMillis >= sentAt - 5000
+                        if (isThisTurn && !lastMsg!!.content.isBlank()) {
+                            applyFallbackReply(lastMsg)
+                        }
+                    }
+                }
+                if (!streaming.value) break
+                delay(4000)
+                waited += 4
+            }
+            // 超过 5 分钟仍无结果 → 结束等待并提示
+            if (streaming.value) {
+                val cur = messages.value.lastOrNull()
+                if (cur?.role == "ASSISTANT" && cur.pending && cur.content.isEmpty()) {
+                    streaming.value = false
+                    streamInfo.value = ""
+                    chatJob?.cancel()
+                    markAssistantDone()
+                    error.value = "长时间未收到回复（网络可能限制了流式传输），请稍后在对话记录中查看结果"
+                    ConvosStore.refresh()
+                }
+            }
+        }
+    }
+
+    /** 用服务端已落库的完整回复替换本地空白的等待气泡 */
+    private fun applyFallbackReply(serverMsg: Message) {
+        val list = messages.value.toMutableList()
+        val last = list.lastOrNull() ?: return
+        if (!(last.role == "ASSISTANT" && last.pending && last.content.isEmpty())) return
+        list[list.lastIndex] = serverMsg.copy(pending = false)
+        messages.value = list
+        streaming.value = false
+        streamInfo.value = ""
+        reasoning.value = ""
+        chatJob?.cancel()
+        ConvosStore.refresh()
     }
 
     private fun appendAssistant(delta: String) {

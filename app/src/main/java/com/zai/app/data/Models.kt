@@ -65,6 +65,11 @@ data class Message(
 ) {
     val isUser: Boolean get() = role == "USER"
 
+    /** ISO 时间转毫秒；解析失败返回 0（轮询兜底里用来判断"是否本轮新消息"） */
+    val createdAtMillis: Long by lazy {
+        runCatching { Instant.parse(createdAt).toEpochMilli() }.getOrDefault(0L)
+    }
+
     companion object {
         fun fromJson(o: JSONObject): Message = Message(
             id = o.optString("id"),

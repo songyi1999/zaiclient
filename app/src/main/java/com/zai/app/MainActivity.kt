@@ -126,6 +126,7 @@ fun AppRoot() {
                             onSendMessage = { prompt ->
                                 nav.navigate("chat/new?prompt=${encodeTitle(prompt)}")
                             },
+                            onStartWithDraft = { nav.navigate("chat/new") },
                         )
                     }
 

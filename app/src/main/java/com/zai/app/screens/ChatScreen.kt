@@ -4,9 +4,6 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,9 +32,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,12 +59,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -80,6 +72,9 @@ import com.zai.app.data.Skill
 import com.zai.app.net.Api
 import com.zai.app.net.ChatEvent
 import com.zai.app.ui.MarkdownText
+import com.zai.app.ui.PendingInput
+import com.zai.app.ui.PlusMenuSheet
+import com.zai.app.ui.rememberAttachmentPicker
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -125,6 +120,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             historyRequested = true
             loadHistory()
         }
+        // 首页 "+" 选好的附件：进入聊天页即开始上传（不等发送）
+        val pending = PendingInput.consumeUris()
+        if (pending.isNotEmpty()) addAttachments(pending)
         if (!autoSent && !prompt.isNullOrBlank() && messages.value.none { it.role == "USER" }) {
             autoSent = true
             send(prompt)
@@ -183,8 +181,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** 拍照完成的本地文件 → 上传 */
     fun addCameraPhoto(file: File) = addAttachments(listOf(Uri.fromFile(file)))
 
-    fun removeAttachment(chip: AttachChip) {
-        attachments.value = attachments.value.filterNot { it.localId == chip.localId }
+    fun removeAttachment(chip: AttachChip) {        attachments.value = attachments.value.filterNot { it.localId == chip.localId }
         chip.remoteId?.let { id ->
             viewModelScope.launch { runCatching { Api.deleteAttachment(id) } }
         }
@@ -315,7 +312,6 @@ fun ChatScreen(
     onBack: () -> Unit,
 ) {
     val vm: ChatViewModel = viewModel()
-    val context = LocalContext.current
     val messages by vm.messages.collectAsState()
     val streaming by vm.streaming.collectAsState()
     val reasoning by vm.reasoning.collectAsState()
@@ -326,29 +322,13 @@ fun ChatScreen(
     val skills by vm.skills.collectAsState()
     val skillsLoading by vm.skillsLoading.collectAsState()
     val streamInfo by vm.streamInfo.collectAsState()
-    var input by remember { mutableStateOf("") }
+    // 首页带过来的草稿只作为初始输入，不自动发送
+    var input by remember { mutableStateOf(PendingInput.consumeDraft()) }
     var showPlusSheet by remember { mutableStateOf(false) }
     var showSkillSheet by remember { mutableStateOf(false) }
-    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     val listState = rememberLazyListState()
 
-    // 拍照：先在缓存目录建文件拿 FileProvider Uri，拍完上传
-    val takePicture = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicture(),
-    ) { ok ->
-        val uri = pendingCameraUri
-        if (ok && uri != null) {
-            val f = File(uri.path ?: return@rememberLauncherForActivityResult)
-            if (f.exists()) vm.addCameraPhoto(f)
-        }
-        pendingCameraUri = null
-    }
-    val pickImages = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(4),
-    ) { uris -> vm.addAttachments(uris) }
-    val pickFiles = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris -> vm.addAttachments(uris) }
+    val picker = rememberAttachmentPicker { uris -> vm.addAttachments(uris) }
 
     LaunchedEffect(conversationIdArg) { vm.init(conversationIdArg, promptArg) }
 
@@ -553,45 +533,26 @@ fun ChatScreen(
 
     // + 号菜单：拍照 / 相册 / 文件 / 技能
     if (showPlusSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showPlusSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Text(
-                "添加到对话",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-            )
-            PlusSheetItem(Icons.Filled.PhotoCamera, "拍照") {
+        PlusMenuSheet(
+            onDismiss = { showPlusSheet = false },
+            onPickCamera = {
                 showPlusSheet = false
-                val dir = File(context.cacheDir, "photos").apply { mkdirs() }
-                val file = File(dir, "photo-${System.currentTimeMillis()}.jpg")
-                val uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file,
-                )
-                pendingCameraUri = uri
-                takePicture.launch(uri)
-            }
-            PlusSheetItem(Icons.Filled.PhotoLibrary, "相册") {
+                picker.launchCamera()
+            },
+            onPickGallery = {
                 showPlusSheet = false
-                pickImages.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                )
-            }
-            PlusSheetItem(Icons.Filled.FolderOpen, "选择文件") {
+                picker.launchGallery()
+            },
+            onPickFiles = {
                 showPlusSheet = false
-                pickFiles.launch(arrayOf("*/*"))
-            }
-            PlusSheetItem(Icons.Filled.Psychology, "选择技能") {
+                picker.launchFiles()
+            },
+            onPickSkill = {
                 showPlusSheet = false
                 vm.loadSkills()
                 showSkillSheet = true
-            }
-            Spacer(Modifier.height(20.dp))
-        }
+            },
+        )
     }
 
     // 技能列表
@@ -656,32 +617,6 @@ fun ChatScreen(
             ) { Text("取消") }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PlusSheetItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(label, fontSize = 16.sp) },
-        leadingContent = {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .padding(6.dp)
-                        .size(20.dp),
-                )
-            }
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-    )
 }
 
 @Composable

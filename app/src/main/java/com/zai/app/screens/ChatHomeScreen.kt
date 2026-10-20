@@ -71,6 +71,9 @@ import androidx.compose.ui.unit.sp
 import com.zai.app.auth.Session
 import com.zai.app.data.ConvosStore
 import com.zai.app.data.Conversation
+import com.zai.app.ui.PendingInput
+import com.zai.app.ui.PlusMenuSheet
+import com.zai.app.ui.rememberAttachmentPicker
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -106,11 +109,21 @@ private fun greeting(): String {
 fun ChatHomeScreen(
     onOpenChat: (id: String, title: String) -> Unit,
     onSendMessage: (prompt: String) -> Unit,
+    onStartWithDraft: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(androidx.compose.material3.DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
     var chipOffset by remember { mutableIntStateOf(0) }
+    var showPlusSheet by remember { mutableStateOf(false) }
+
+    // 选好附件 → 暂存 + 带着当前草稿进聊天页（草稿只预填不自动发送）
+    val picker = rememberAttachmentPicker { uris ->
+        PendingInput.uris = uris
+        PendingInput.draft = input.trim()
+        input = ""
+        onStartWithDraft()
+    }
 
     LaunchedEffect(Unit) { ConvosStore.refresh() }
 
@@ -262,13 +275,24 @@ fun ChatHomeScreen(
                     }
                 }
 
-                // 底部：圆角输入条 + 圆形发送按钮
+                // 底部：+ 号 + 圆角输入条 + 圆形发送按钮
                 Row(
                     verticalAlignment = Alignment.Bottom,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
+                    Surface(
+                        onClick = { showPlusSheet = true },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(46.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.Add, contentDescription = "附件")
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
@@ -306,6 +330,25 @@ fun ChatHomeScreen(
                 Spacer(Modifier.height(4.dp))
             }
         }
+    }
+
+    // + 号菜单：拍照 / 相册 / 文件（技能选择在聊天页内）
+    if (showPlusSheet) {
+        PlusMenuSheet(
+            onDismiss = { showPlusSheet = false },
+            onPickCamera = {
+                showPlusSheet = false
+                picker.launchCamera()
+            },
+            onPickGallery = {
+                showPlusSheet = false
+                picker.launchGallery()
+            },
+            onPickFiles = {
+                showPlusSheet = false
+                picker.launchFiles()
+            },
+        )
     }
 }
 

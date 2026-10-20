@@ -74,3 +74,17 @@ data class Message(
         )
     }
 }
+
+data class Skill(
+    val id: String,
+    val name: String,
+    val description: String,
+) {
+    companion object {
+        fun fromJson(o: JSONObject): Skill = Skill(
+            id = o.optString("id"),
+            name = o.optString("name").ifBlank { "未命名技能" },
+            description = o.optString("description"),
+        )
+    }
+}

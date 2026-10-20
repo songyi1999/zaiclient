@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.combinedClickable
 import com.zai.app.auth.Session
-import com.zai.app.ui.UpdateCheckRow
 
 /** 「发现」Tab：对话记录入口 + 服务器信息 + 即将上线的能力预览 */
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -106,7 +105,6 @@ fun DiscoverScreen(onOpenTab: (route: String) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column {
-                    UpdateCheckRow()
                     ListItem(
                         headlineContent = { Text("服务器") },
                         supportingContent = {

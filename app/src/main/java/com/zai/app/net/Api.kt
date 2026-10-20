@@ -3,17 +3,19 @@ package com.zai.app.net
 import com.zai.app.auth.Session
 import com.zai.app.data.Conversation
 import com.zai.app.data.Message
+import com.zai.app.data.Skill
 import com.zai.app.data.User
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -29,6 +31,9 @@ sealed class ChatEvent {
     data class Reasoning(val content: String) : ChatEvent()
     data class Done(val conversationId: String) : ChatEvent()
     data class Error(val message: String) : ChatEvent()
+
+    /** SSE 注释行（后端 15s 心跳）。仅用于流状态展示，不影响内容。 */
+    object Heartbeat : ChatEvent()
 }
 
 class ApiException(val code: Int, message: String) : Exception(message)
@@ -48,9 +53,16 @@ object Api {
     private val authedClient: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(AuthInterceptor())
         .connectTimeout(15, TimeUnit.SECONDS)
-        // SSE 长连接：读超时必须大于后端 15s 心跳间隔，留足余量
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * SSE 长连接专用：读超时放大到 5 分钟（多工具调用可能长时间无 token，
+     * 后端 15s 心跳会持续重置该计时器，这里只是兜底）。
+     */
+    private val sseClient: OkHttpClient = authedClient.newBuilder()
+        .readTimeout(300, TimeUnit.SECONDS)
         .build()
 
     private class AuthInterceptor : Interceptor {
@@ -145,14 +157,33 @@ object Api {
         }
     }
 
+    /** 新建会话，返回 id（发附件前需要先有会话） */
+    suspend fun createConversation(): String = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("${Session.apiBase}/conversations")
+            .post("{}".toRequestBody(JSON))
+            .build()
+        val resp = authedClient.newCall(req).execute()
+        resp.use {
+            if (!it.isSuccessful) throw ApiException(it.code, errorMessage(it.body?.string(), "创建会话失败"))
+            JSONObject(it.body!!.string()).getString("id")
+        }
+    }
+
     // ----------------------------------------------------------------- chat
 
     /**
      * SSE 流式对话。POST /api/agents/default/chat
      * 事件流见后端 agent.controller：conversation → token/reasoning* → done。
-     * 取消收集（离开页面）会 cancel 底层 OkHttp call，立即断开连接。
+     *
+     * 实现要点（对比早期版本的坑）：
+     * - 直接在 flow 构建器里同步 execute + 逐行读，emit 跨上下文交给 flowOn 处理，
+     *   不引入 channelFlow/子协程等额外机制；
+     * - 显式 `Accept-Encoding: identity` 禁用 OkHttp 透明 gzip 与任何中间层压缩，
+     *   防止 SSE 被缓冲成"一次性到达"；
+     * - 收集结束/取消时通过 invokeOnCompletion 立刻 call.cancel() 断开连接。
      */
-    fun chat(message: String, conversationId: String?): Flow<ChatEvent> = channelFlow {
+    fun chat(message: String, conversationId: String?): Flow<ChatEvent> = flow {
         val body = JSONObject().apply {
             put("message", message)
             conversationId?.let { put("conversationId", it) }
@@ -160,39 +191,52 @@ object Api {
         val req = Request.Builder()
             .url("${Session.apiBase}/agents/default/chat")
             .post(body)
+            .header("Accept", "text/event-stream")
+            .header("Accept-Encoding", "identity")
+            .header("Cache-Control", "no-cache")
             .build()
-        val call = authedClient.newCall(req)
+        val call = sseClient.newCall(req)
+        val startedAt = System.currentTimeMillis()
 
-        launch {
-            try {
-                call.execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        send(ChatEvent.Error(errorMessage(resp.body?.string(), "请求失败 (HTTP ${resp.code})")))
-                        return@launch
-                    }
-                    val source = resp.body?.source() ?: run {
-                        send(ChatEvent.Error("空响应"))
-                        return@launch
-                    }
-                    while (true) {
-                        val line = source.readUtf8Line() ?: break
-                        parseSseLine(line)?.let { send(it) }
+        // 收集方离开页面/取消收集时，立即断开底层连接（解除阻塞读）
+        currentCoroutineContext().job.invokeOnCompletion { call.cancel() }
+
+        try {
+            call.execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    emit(
+                        ChatEvent.Error(
+                            errorMessage(resp.body?.string(), "请求失败 (HTTP ${resp.code})"),
+                        ),
+                    )
+                    return@use
+                }
+                val source = resp.body?.source()
+                if (source == null) {
+                    emit(ChatEvent.Error("空响应"))
+                    return@use
+                }
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    when {
+                        line.startsWith(":") -> emit(ChatEvent.Heartbeat)
+                        else -> parseSseLine(line)?.let { emit(it) }
                     }
                 }
-            } catch (e: Exception) {
-                // call.cancel() 触发的 IOException 是正常取消，不算错误
-                if (!call.isCanceled()) {
-                    send(ChatEvent.Error(e.message ?: "网络错误"))
-                }
-            } finally {
-                close()
+            }
+        } catch (e: Exception) {
+            if (!call.isCanceled()) {
+                val elapsed = (System.currentTimeMillis() - startedAt) / 1000
+                emit(
+                    ChatEvent.Error(
+                        "${e.javaClass.simpleName}: ${e.message ?: "网络错误"}（${elapsed}s）",
+                    ),
+                )
             }
         }
-        awaitClose { call.cancel() }
     }.flowOn(Dispatchers.IO)
 
     private fun parseSseLine(line: String): ChatEvent? {
-        // ": heartbeat" 注释行与空行直接忽略
         if (!line.startsWith("data:")) return null
         val payload = line.removePrefix("data:").trim()
         if (payload.isEmpty()) return null
@@ -207,6 +251,62 @@ object Api {
                 else -> null
             }
         }.getOrNull()
+    }
+
+    // ---------------------------------------------------------- attachments
+
+    /**
+     * 上传聊天附件。POST /api/chat-attachments（multipart: files + conversationId）
+     * 返回附件 id。后端按会话注入上下文。
+     */
+    suspend fun uploadAttachment(
+        conversationId: String,
+        fileName: String,
+        mime: String,
+        bytes: ByteArray,
+    ): String = withContext(Dispatchers.IO) {
+        val part = MultipartBody.Part.createFormData(
+            "files",
+            fileName,
+            bytes.toRequestBody(mime.toMediaType()),
+        )
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("conversationId", conversationId)
+            .addPart(part)
+            .build()
+        val req = Request.Builder()
+            .url("${Session.apiBase}/chat-attachments")
+            .post(body)
+            .build()
+        val resp = authedClient.newCall(req).execute()
+        resp.use {
+            if (!it.isSuccessful) throw ApiException(it.code, errorMessage(it.body?.string(), "上传失败"))
+            val arr = JSONObject(it.body!!.string()).optJSONArray("attachments")
+            if (arr == null || arr.length() == 0) throw ApiException(it.code, "上传响应为空")
+            arr.getJSONObject(0).optString("id")
+        }
+    }
+
+    suspend fun deleteAttachment(id: String) = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("${Session.apiBase}/chat-attachments/$id")
+            .delete()
+            .build()
+        authedClient.newCall(req).execute().use { /* 尽力删除，失败不阻塞 */ }
+    }
+
+    // --------------------------------------------------------------- skills
+
+    /** 当前用户可用技能（GET /api/skills/mine） */
+    suspend fun skills(): List<Skill> = withContext(Dispatchers.IO) {
+        val resp = authedGet("/skills/mine")
+        resp.use {
+            if (!it.isSuccessful) throw ApiException(it.code, errorMessage(it.body?.string(), "获取技能失败"))
+            val text = it.body!!.string()
+            val arr = runCatching { JSONObject(text).optJSONArray("skills") }.getOrNull() ?: JSONArray(text)
+            (0 until arr.length()).map { Skill.fromJson(arr.getJSONObject(it)) }
+        }
     }
 
     // -------------------------------------------------------------- helpers

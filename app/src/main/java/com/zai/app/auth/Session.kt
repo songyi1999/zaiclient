@@ -88,5 +88,28 @@ object Session {
         loggedIn = false
     }
 
+    // ------------------------------------------------- 记住密码（登录页勾选）
+
+    /** 退出登录不清除记住的账号密码，方便下次直接登录 */
+    val rememberedUsername: String?
+        get() = prefs.getString("rememberedUsername", null)
+
+    val rememberedPassword: String?
+        get() = prefs.getString("rememberedPassword", null)
+
+    fun saveRemembered(username: String, password: String) {
+        prefs.edit()
+            .putString("rememberedUsername", username)
+            .putString("rememberedPassword", password)
+            .apply()
+    }
+
+    fun clearRemembered() {
+        prefs.edit()
+            .remove("rememberedUsername")
+            .remove("rememberedPassword")
+            .apply()
+    }
+
     const val DEFAULT_SERVER = "http://zai.xinpanmen.com:9002"
 }

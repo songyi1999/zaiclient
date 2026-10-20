@@ -130,7 +130,7 @@ fun SettingsScreen(onBack: () -> Unit, onLogout: () -> Unit) {
 
             Spacer(Modifier.height(16.dp))
             Text(
-                "ZAI 工作台 安卓端 v0.1.0",
+                "ZAI 工作台 安卓端 v${com.zai.app.BuildConfig.VERSION_NAME}",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

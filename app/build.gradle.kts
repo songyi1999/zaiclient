@@ -12,8 +12,8 @@ android {
         applicationId = "com.zai.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.6.1"
+        versionCode = 9
+        versionName = "0.7.0"
     }
 
     signingConfigs {
@@ -57,6 +57,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.okhttp)
+    implementation(libs.okhttp.sse)
     implementation(libs.coroutines.android)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

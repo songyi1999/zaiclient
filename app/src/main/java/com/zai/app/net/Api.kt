@@ -6,11 +6,10 @@ import com.zai.app.data.Message
 import com.zai.app.data.Skill
 import com.zai.app.data.User
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Interceptor
@@ -20,12 +19,17 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** 聊天 SSE 事件（与后端 agent.controller / 网页端 sse.ts 的 wire format 一一对应） */
 sealed class ChatEvent {
+    /** SSE 连接已建立（收到响应头） */
+    object Connected : ChatEvent()
     data class ConversationCreated(val conversationId: String) : ChatEvent()
     data class Token(val content: String) : ChatEvent()
 
@@ -34,9 +38,6 @@ sealed class ChatEvent {
     data class Reasoning(val content: String) : ChatEvent()
     data class Done(val conversationId: String) : ChatEvent()
     data class Error(val message: String) : ChatEvent()
-
-    /** SSE 注释行（后端 15s 心跳）。仅用于流状态展示，不影响内容。 */
-    object Heartbeat : ChatEvent()
 }
 
 class ApiException(val code: Int, message: String) : Exception(message)
@@ -177,12 +178,13 @@ object Api {
 
     /**
      * SSE 流式对话。POST /api/agents/default/chat
-     * 请求头与解析逻辑严格对齐网页端 src/lib/sse.ts：
-     * - 只发 Content-Type + Authorization（由拦截器附加），不加任何额外头；
-     * - 按 "\n\n" 切分事件，事件内多条 data: 行用换行拼接后 JSON.parse；
-     * - 流被干净关闭但没收到 done 事件时显式报错，不再静默结束。
+     *
+     * 使用 OkHttp 官方 okhttp3-sse 模块（EventSources 工厂支持 POST 请求），
+     * SSE 协议解析（事件切分/多行 data 拼接/注释行忽略）全部交给官方实现。
+     * 事件语义与网页端 sse.ts 一一对应；流结束但没收到 done 时显式报错。
+     * 兜底：ChatViewModel 的轮询（网络缓冲流式时的保底方案）。
      */
-    fun chat(message: String, conversationId: String?): Flow<ChatEvent> = flow {
+    fun chat(message: String, conversationId: String?): Flow<ChatEvent> = callbackFlow {
         val body = JSONObject().apply {
             put("message", message)
             conversationId?.let { put("conversationId", it) }
@@ -191,78 +193,55 @@ object Api {
             .url("${Session.apiBase}/agents/default/chat")
             .post(body)
             .build()
-        val call = sseClient.newCall(req)
-        val startedAt = System.currentTimeMillis()
-
-        // 收集方离开页面/取消收集时，立即断开底层连接（解除阻塞读）
-        currentCoroutineContext().job.invokeOnCompletion { call.cancel() }
 
         var sawDone = false
         var sawAnyEvent = false
-        try {
-            call.execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    emit(
-                        ChatEvent.Error(
-                            errorMessage(resp.body?.string(), "请求失败 (HTTP ${resp.code})"),
-                        ),
-                    )
-                    return@use
-                }
-                val source = resp.body?.source()
-                if (source == null) {
-                    emit(ChatEvent.Error("空响应"))
-                    return@use
-                }
-                // —— 以下与网页端 sse.ts 的 reader 循环逐行对应 ——
-                var buffer = ""
-                while (true) {
-                    val line = source.readUtf8Line() ?: break
-                    buffer += line + "\n"
-                    var sep: Int
-                    while (buffer.indexOf("\n\n").also { sep = it } != -1) {
-                        val rawEvent = buffer.substring(0, sep)
-                        buffer = buffer.substring(sep + 2)
 
-                        val dataLines = rawEvent.split("\n")
-                            .filter { it.startsWith("data:") }
-                            .map { it.substring(5).trim() }
-                        val jsonStr = dataLines.joinToString("\n")
-                        if (jsonStr.isEmpty()) continue
+        val es = EventSources.createFactory(sseClient).newEventSource(
+            req,
+            object : EventSourceListener() {
+                override fun onOpen(eventSource: EventSource, response: Response) {
+                    trySend(ChatEvent.Connected)
+                }
 
-                        val json = runCatching { JSONObject(jsonStr) }.getOrNull()
-                        if (json == null) {
-                            emit(ChatEvent.Error("收到无法解析的事件: ${jsonStr.take(120)}"))
-                            continue
-                        }
-                        val ev = parseEvent(json)
-                        if (ev != null) {
-                            sawAnyEvent = true
-                            if (ev is ChatEvent.Done) sawDone = true
-                            emit(ev)
-                        }
+                override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                    val json = runCatching { JSONObject(data) }.getOrNull()
+                    if (json == null) {
+                        trySend(ChatEvent.Error("收到无法解析的事件: ${data.take(120)}"))
+                        return
                     }
+                    val ev = parseEvent(json) ?: return
+                    sawAnyEvent = true
+                    if (ev is ChatEvent.Done) sawDone = true
+                    trySend(ev)
                 }
-            }
-            if (!sawDone) {
-                val elapsed = (System.currentTimeMillis() - startedAt) / 1000
-                emit(
-                    ChatEvent.Error(
-                        if (sawAnyEvent) "连接被中断，回复不完整（${elapsed}s）"
-                        else "服务器关闭了连接，未收到任何数据（${elapsed}s）",
-                    ),
-                )
-            }
-        } catch (e: Exception) {
-            if (!call.isCanceled()) {
-                val elapsed = (System.currentTimeMillis() - startedAt) / 1000
-                emit(
-                    ChatEvent.Error(
-                        "${e.javaClass.simpleName}: ${e.message ?: "网络错误"}（${elapsed}s）",
-                    ),
-                )
-            }
-        }
+
+                override fun onClosed(eventSource: EventSource) {
+                    if (!sawDone) {
+                        trySend(
+                            ChatEvent.Error(
+                                if (sawAnyEvent) "连接被中断，回复不完整"
+                                else "服务器关闭了连接，未收到任何数据",
+                            ),
+                        )
+                    }
+                    close()
+                }
+
+                override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                    val msg = when {
+                        response != null && !response.isSuccessful ->
+                            errorMessage(response.body?.string(), "请求失败 (HTTP ${response.code})")
+
+                        else -> "${t?.javaClass?.simpleName ?: "网络错误"}: ${t?.message ?: ""}"
+                    }
+                    trySend(ChatEvent.Error(msg))
+                    close()
+                }
+            },
+        )
+
+        awaitClose { es.cancel() }
     }.flowOn(Dispatchers.IO)
 
     /** 与网页端 sse.ts 的 switch 一一对应（含网页端处理的全部事件类型） */

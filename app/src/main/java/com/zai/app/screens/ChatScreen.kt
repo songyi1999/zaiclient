@@ -225,11 +225,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         streamInfo.value = "连接中…"
 
         var tokens = 0
-        var heartbeats = 0
         chatJob = viewModelScope.launch {
             try {
                 Api.chat(content, conversationId).collect { ev ->
                     when (ev) {
+                        is ChatEvent.Connected -> streamInfo.value = "已连接"
+
                         is ChatEvent.ConversationCreated -> {
                             conversationId = ev.conversationId
                             streamInfo.value = "已连接"
@@ -244,11 +245,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         is ChatEvent.ReplaceContent -> replaceAssistant(ev.content)
 
                         is ChatEvent.Reasoning -> reasoning.value += ev.content
-
-                        is ChatEvent.Heartbeat -> {
-                            heartbeats++
-                            streamInfo.value = "已连接 · $tokens 字 · 心跳$heartbeats"
-                        }
 
                         is ChatEvent.Done -> Unit
                         is ChatEvent.Error -> error.value = ev.message

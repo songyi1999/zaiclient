@@ -24,10 +24,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** 聊天 SSE 事件（与后端 agent.controller 的 wire format 一一对应） */
+/** 聊天 SSE 事件（与后端 agent.controller / 网页端 sse.ts 的 wire format 一一对应） */
 sealed class ChatEvent {
     data class ConversationCreated(val conversationId: String) : ChatEvent()
     data class Token(val content: String) : ChatEvent()
+
+    /** 服务端要求用 content 整体替换已流出的内容（清理泄漏的 JSON 等） */
+    data class ReplaceContent(val content: String) : ChatEvent()
     data class Reasoning(val content: String) : ChatEvent()
     data class Done(val conversationId: String) : ChatEvent()
     data class Error(val message: String) : ChatEvent()
@@ -174,14 +177,10 @@ object Api {
 
     /**
      * SSE 流式对话。POST /api/agents/default/chat
-     * 事件流见后端 agent.controller：conversation → token/reasoning* → done。
-     *
-     * 实现要点（对比早期版本的坑）：
-     * - 直接在 flow 构建器里同步 execute + 逐行读，emit 跨上下文交给 flowOn 处理，
-     *   不引入 channelFlow/子协程等额外机制；
-     * - 显式 `Accept-Encoding: identity` 禁用 OkHttp 透明 gzip 与任何中间层压缩，
-     *   防止 SSE 被缓冲成"一次性到达"；
-     * - 收集结束/取消时通过 invokeOnCompletion 立刻 call.cancel() 断开连接。
+     * 请求头与解析逻辑严格对齐网页端 src/lib/sse.ts：
+     * - 只发 Content-Type + Authorization（由拦截器附加），不加任何额外头；
+     * - 按 "\n\n" 切分事件，事件内多条 data: 行用换行拼接后 JSON.parse；
+     * - 流被干净关闭但没收到 done 事件时显式报错，不再静默结束。
      */
     fun chat(message: String, conversationId: String?): Flow<ChatEvent> = flow {
         val body = JSONObject().apply {
@@ -191,9 +190,6 @@ object Api {
         val req = Request.Builder()
             .url("${Session.apiBase}/agents/default/chat")
             .post(body)
-            .header("Accept", "text/event-stream")
-            .header("Accept-Encoding", "identity")
-            .header("Cache-Control", "no-cache")
             .build()
         val call = sseClient.newCall(req)
         val startedAt = System.currentTimeMillis()
@@ -201,6 +197,8 @@ object Api {
         // 收集方离开页面/取消收集时，立即断开底层连接（解除阻塞读）
         currentCoroutineContext().job.invokeOnCompletion { call.cancel() }
 
+        var sawDone = false
+        var sawAnyEvent = false
         try {
             call.execute().use { resp ->
                 if (!resp.isSuccessful) {
@@ -216,13 +214,44 @@ object Api {
                     emit(ChatEvent.Error("空响应"))
                     return@use
                 }
+                // —— 以下与网页端 sse.ts 的 reader 循环逐行对应 ——
+                var buffer = ""
                 while (true) {
                     val line = source.readUtf8Line() ?: break
-                    when {
-                        line.startsWith(":") -> emit(ChatEvent.Heartbeat)
-                        else -> parseSseLine(line)?.let { emit(it) }
+                    buffer += line + "\n"
+                    var sep: Int
+                    while (buffer.indexOf("\n\n").also { sep = it } != -1) {
+                        val rawEvent = buffer.substring(0, sep)
+                        buffer = buffer.substring(sep + 2)
+
+                        val dataLines = rawEvent.split("\n")
+                            .filter { it.startsWith("data:") }
+                            .map { it.substring(5).trim() }
+                        val jsonStr = dataLines.joinToString("\n")
+                        if (jsonStr.isEmpty()) continue
+
+                        val json = runCatching { JSONObject(jsonStr) }.getOrNull()
+                        if (json == null) {
+                            emit(ChatEvent.Error("收到无法解析的事件: ${jsonStr.take(120)}"))
+                            continue
+                        }
+                        val ev = parseEvent(json)
+                        if (ev != null) {
+                            sawAnyEvent = true
+                            if (ev is ChatEvent.Done) sawDone = true
+                            emit(ev)
+                        }
                     }
                 }
+            }
+            if (!sawDone) {
+                val elapsed = (System.currentTimeMillis() - startedAt) / 1000
+                emit(
+                    ChatEvent.Error(
+                        if (sawAnyEvent) "连接被中断，回复不完整（${elapsed}s）"
+                        else "服务器关闭了连接，未收到任何数据（${elapsed}s）",
+                    ),
+                )
             }
         } catch (e: Exception) {
             if (!call.isCanceled()) {
@@ -236,21 +265,19 @@ object Api {
         }
     }.flowOn(Dispatchers.IO)
 
-    private fun parseSseLine(line: String): ChatEvent? {
-        if (!line.startsWith("data:")) return null
-        val payload = line.removePrefix("data:").trim()
-        if (payload.isEmpty()) return null
-        return runCatching {
-            val o = JSONObject(payload)
-            when (o.optString("type")) {
-                "conversation" -> ChatEvent.ConversationCreated(o.optString("conversationId"))
-                "token" -> ChatEvent.Token(o.optString("content"))
-                "reasoning" -> ChatEvent.Reasoning(o.optString("content"))
-                "done" -> ChatEvent.Done(o.optString("conversationId"))
-                "error" -> ChatEvent.Error(o.optString("message", "服务器错误"))
-                else -> null
-            }
-        }.getOrNull()
+    /** 与网页端 sse.ts 的 switch 一一对应（含网页端处理的全部事件类型） */
+    private fun parseEvent(o: JSONObject): ChatEvent? = when (o.optString("type")) {
+        "conversation" -> ChatEvent.ConversationCreated(o.optString("conversationId"))
+        "token" -> ChatEvent.Token(o.optString("content"))
+        "replace_content" -> ChatEvent.ReplaceContent(o.optString("content"))
+        "reasoning" -> ChatEvent.Reasoning(o.optString("content"))
+        "done" -> ChatEvent.Done(o.optString("conversationId"))
+        "error" -> ChatEvent.Error(o.optString("message", "服务器错误"))
+        // hitl_request / document_updated / template_updated：网页端有专门 UI，
+        // App 暂无——先忽略不报错
+        "hitl_request", "document_updated", "template_updated" -> null
+        // 无 type 字段的事件（如 user 消息回执）两端都忽略
+        else -> null
     }
 
     // ---------------------------------------------------------- attachments

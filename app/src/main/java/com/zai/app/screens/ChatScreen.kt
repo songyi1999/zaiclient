@@ -235,6 +235,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             streamInfo.value = "已连接 · $tokens 字"
                         }
 
+                        is ChatEvent.ReplaceContent -> replaceAssistant(ev.content)
+
                         is ChatEvent.Reasoning -> reasoning.value += ev.content
 
                         is ChatEvent.Heartbeat -> {
@@ -262,6 +264,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val last = list.lastOrNull() ?: return
         if (last.role == "ASSISTANT" && last.pending) {
             list[list.lastIndex] = last.copy(content = last.content + delta)
+            messages.value = list
+        }
+    }
+
+    /** 服务端 replace_content：整体替换已流出的内容 */
+    private fun replaceAssistant(content: String) {
+        val list = messages.value.toMutableList()
+        val last = list.lastOrNull() ?: return
+        if (last.role == "ASSISTANT" && last.pending) {
+            list[list.lastIndex] = last.copy(content = content)
             messages.value = list
         }
     }
@@ -393,7 +405,7 @@ fun ChatScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         itemsIndexed(messages, key = { _, m -> m.id }) { _, msg ->
-                            MessageItem(msg)
+                            MessageItem(msg, streamInfo)
                             if (msg.role == "ASSISTANT" && msg.pending && reasoning.isNotBlank()) {
                                 ReasoningBox(reasoning)
                             }
@@ -620,7 +632,7 @@ fun ChatScreen(
 }
 
 @Composable
-private fun MessageItem(msg: Message) {
+private fun MessageItem(msg: Message, streamInfo: String = "") {
     if (msg.isUser) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Surface(
@@ -671,7 +683,8 @@ private fun MessageItem(msg: Message) {
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "思考中…",
+                            // 连接状态直接展示在对话里：连接中… / 已连接 / 已连接 · N字 · 心跳N
+                            streamInfo.ifBlank { "思考中…" },
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

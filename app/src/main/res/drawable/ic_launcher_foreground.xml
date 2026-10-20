@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 对话气泡 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 C40,30 30,38 30,48 C30,58 40,66 54,66 C56.5,66 59,65.7 61.3,65.1 L72,70 L69.2,61.6 C74.6,58.3 78,53.4 78,48 C78,38 68,30 54,30 Z" />
+    <!-- 气泡内的三个点 -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M44,48 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0" />
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M54,48 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0" />
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M64,48 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0" />
+</vector>

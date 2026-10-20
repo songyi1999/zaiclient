@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APKs
+        run: |
+          ./gradlew assembleDebug assembleRelease --stacktrace 2>&1 | tee build-output.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            awk '/What went wrong:/{f=1} f{print; c++; if(c>18) exit}' build-output.log > errs.txt
+            grep -A 4 "^e: " build-output.log | head -8 >> errs.txt || true
+            grep -m1 -A 3 "Caused by" build-output.log >> errs.txt || true
+            if [ ! -s errs.txt ]; then tail -10 build-output.log > errs.txt; fi
+            while IFS= read -r line; do
+              msg=$(echo "$line" | cut -c1-220)
+              if [ -n "$msg" ]; then echo "::error::${msg}"; fi
+            done < errs.txt
+          fi
+          exit $status
+
+      - name: Rename APKs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk ZaiClient-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk ZaiClient-release.apk
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZaiClient-APK
+          path: |
+            ZaiClient-debug.apk
+            ZaiClient-release.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ZaiClient-release.apk
+          generate_release_notes: true

@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -20,27 +21,58 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zai.app.BuildConfig
 import com.zai.app.auth.Session
+import com.zai.app.net.Updater
+import com.zai.app.ui.UpdateDialog
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     var serverUrl by remember { mutableStateOf(Session.serverUrl) }
     val user = Session.user
+
+    // 手动检查更新：checking / 有新版(弹 UpdateDialog) / 已是最新 / 出错
+    var checking by remember { mutableStateOf(false) }
+    var upToDate by remember { mutableStateOf(false) }
+    var checkError by remember { mutableStateOf<String?>(null) }
+    var newRelease by remember { mutableStateOf<Updater.Release?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun checkUpdate() {
+        if (checking) return
+        checking = true
+        upToDate = false
+        checkError = null
+        scope.launch {
+            try {
+                val latest = Updater.fetchLatest()
+                if (Updater.isNewer(latest.version)) newRelease = latest else upToDate = true
+            } catch (e: Exception) {
+                checkError = e.message ?: "检查更新失败"
+            } finally {
+                checking = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -129,12 +161,42 @@ fun SettingsScreen(onBack: () -> Unit, onLogout: () -> Unit) {
             ) { Text("退出登录") }
 
             Spacer(Modifier.height(16.dp))
-            Text(
-                "ZAI 工作台 安卓端 v${com.zai.app.BuildConfig.VERSION_NAME}",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ListItem(
+                headlineContent = { Text("当前版本") },
+                supportingContent = { Text("v${BuildConfig.VERSION_NAME}") },
+                trailingContent = {
+                    OutlinedButton(onClick = { checkUpdate() }, enabled = !checking) {
+                        Text(if (checking) "检查中…" else "查看最新版本")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+
+    // 检查结果：已是最新 / 出错
+    if (upToDate) {
+        AlertDialog(
+            onDismissRequest = { upToDate = false },
+            title = { Text("已是最新版本") },
+            text = { Text("当前 v${BuildConfig.VERSION_NAME} 已是最新发布版本。") },
+            confirmButton = {
+                TextButton(onClick = { upToDate = false }) { Text("好的") }
+            },
+        )
+    }
+    if (checkError != null && newRelease == null) {
+        AlertDialog(
+            onDismissRequest = { checkError = null },
+            title = { Text("检查更新失败") },
+            text = { Text(checkError!!) },
+            confirmButton = {
+                TextButton(onClick = { checkError = null }) { Text("好的") }
+            },
+        )
+    }
+    newRelease?.let { release ->
+        UpdateDialog(release = release, onDismiss = { newRelease = null })
     }
 }
 

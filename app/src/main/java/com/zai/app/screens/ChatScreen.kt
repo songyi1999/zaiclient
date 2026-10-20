@@ -263,22 +263,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 流式通道兜底：部分手机网络（运营商对明文 HTTP 的代理）会缓冲 SSE，
-     * 表现为"一直在思考中"但服务端其实已完整生成（历史记录里能看到）。
-     * 发送 6 秒后仍无内容时改为每 4 秒拉一次服务端消息，
-     * 一旦发现本轮回复已落库就直接完整展示。
+     * 流式通道兜底。实测服务端首字延迟 14-30s、偶发降级 200s+、
+     * 间歇性完全挂（十几分钟窗口）。策略：45s 仍无内容改为每 5s 拉一次
+     * 服务端消息（拉到落库的完整回复就直接展示），最多等 10 分钟。
      */
     private fun startPollingFallback(sentAt: Long, baselineCount: Int) {
         viewModelScope.launch {
-            delay(6000)
-            var waited = 6
-            while (isActive && streaming.value && waited < 300) {
+            delay(45_000)
+            var waited = 45
+            while (isActive && streaming.value && waited < 600) {
                 // SSE 已经出字（或已结束）→ 轮询退出
                 val cur = messages.value.lastOrNull()
                 if (cur == null || !(cur.role == "ASSISTANT" && cur.pending)) break
                 if (cur.content.isNotEmpty()) break
 
-                streamInfo.value = "流式通道未响应，正在获取回复…（${waited}s）"
+                streamInfo.value = "回复较慢，正在等待结果…（${waited}s）"
                 runCatching {
                     val convId = conversationId
                         ?: Api.conversations()
@@ -298,10 +297,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 if (!streaming.value) break
-                delay(4000)
-                waited += 4
+                delay(5000)
+                waited += 5
             }
-            // 超过 5 分钟仍无结果 → 结束等待并提示
+            // 超过 10 分钟仍无结果 → 结束等待并提示
             if (streaming.value) {
                 val cur = messages.value.lastOrNull()
                 if (cur?.role == "ASSISTANT" && cur.pending && cur.content.isEmpty()) {

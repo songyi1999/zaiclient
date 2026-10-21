@@ -82,12 +82,62 @@ private fun parseMarkdown(content: String): List<Block> {
     return blocks
 }
 
-/** 行内样式：`code`、**bold**、*italic*、~~strike~~、可点击的 http(s) 链接 */
+/** 行内样式：`code`、**bold**、*italic*、~~strike~~、[label](url) 与可点击的 http(s)/相对路径链接 */
 fun markdownInline(text: String, linkColor: Color = Color.Unspecified): AnnotatedString = buildAnnotatedString {
+    fun linkStyles() = if (linkColor == Color.Unspecified) null
+    else TextLinkStyles(
+        SpanStyle(
+            color = linkColor,
+            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+        ),
+    )
+
+    fun appendLink(url: String, label: String) {
+        val abs = if (url.startsWith("http")) url else Session.serverUrl.trimEnd('/') + url
+        withLink(LinkAnnotation.Url(abs, linkStyles())) { append(label.ifBlank { url }) }
+    }
+
     var i = 0
     val s = text
     while (i < s.length) {
         when {
+            // [label](url) 标准链接语法
+            s[i] == '[' -> {
+                val close = s.indexOf("](", i)
+                val done = if (close > i) s.indexOf(')', close) else -1
+                if (close > i && done > close) {
+                    val label = s.substring(i + 1, close)
+                    val url = s.substring(close + 2, done)
+                    if (url.startsWith("http") || url.startsWith("/")) {
+                        appendLink(url, label)
+                        i = done + 1
+                    } else {
+                        append(s[i]); i++
+                    }
+                } else {
+                    append(s[i]); i++
+                }
+            }
+
+            // 反引号行内代码：内容若是服务端路径（如 /api/slides/xxx）则渲染成链接
+            s.startsWith("`", i) -> {
+                val end = s.indexOf('`', i + 1)
+                if (end > i) {
+                    val code = s.substring(i + 1, end)
+                    val labeled = serverPathLabel(code)
+                    if (labeled != null) {
+                        appendLink(code, labeled)
+                    } else {
+                        withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0x14808080))) {
+                            append(code)
+                        }
+                    }
+                    i = end + 1
+                } else {
+                    append(s[i]); i++
+                }
+            }
+
             (s.startsWith("http://", i) || s.startsWith("https://", i)) -> {
                 // 吃掉从当前位置开始的整段 URL，去掉粘在末尾的标点
                 val m = URL_AT_START.find(s.substring(i))
@@ -96,29 +146,21 @@ fun markdownInline(text: String, linkColor: Color = Color.Unspecified): Annotate
                 if (url.length < 12) {
                     append(s[i]); i++
                 } else {
-                    val styles = if (linkColor == Color.Unspecified) null
-                    else TextLinkStyles(
-                        SpanStyle(
-                            color = linkColor,
-                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
-                        ),
-                    )
-                    withLink(LinkAnnotation.Url(url, styles)) { append(url) }
+                    appendLink(url, url)
                     i += url.length
                 }
             }
 
-            s.startsWith("`", i) -> {
-                val end = s.indexOf('`', i + 1)
-                if (end > i) {
-                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0x14808080))) {
-                        append(s.substring(i + 1, end))
-                    }
-                    i = end + 1
-                } else {
-                    append(s[i]); i++
-                }
+            // 裸相对路径（/api/...、/share/...、/images/...）也做成链接
+            s[i] == '/' && RELATIVE_PATH_AT_START.containsMatchIn(s.substring(i)) -> {
+                val m = RELATIVE_PATH_AT_START.find(s.substring(i))
+                var path = m!!.value
+                path = path.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}', '）', '】', '」', '。', '，', '、')
+                val labeled = serverPathLabel(path)
+                appendLink(path, labeled ?: path)
+                i += path.length
             }
+
             s.startsWith("**", i) -> {
                 val end = s.indexOf("**", i + 2)
                 if (end > i) {
@@ -156,6 +198,21 @@ fun markdownInline(text: String, linkColor: Color = Color.Unspecified): Annotate
 }
 
 private val URL_AT_START = Regex("^https?://[^\\s<>\"'\\[\\]()]+")
+
+/** 相对路径形状：/word/word… 至少两段（避免误伤普通文字里的斜杠） */
+private val RELATIVE_PATH_AT_START = Regex("^/[a-zA-Z][\\w\\-]*/[\\w\\-./%~]+")
+
+/**
+ * 服务端路径 → 友好链接文案（对齐网页端 MarkdownRenderer 的预处理）。
+ * 不是可链接的路径时返回 null。
+ */
+private fun serverPathLabel(path: String): String? = when {
+    Regex("^/api/slides/[a-f0-9-]+/download$", RegexOption.IGNORE_CASE).matches(path) -> "📥 下载 PPT"
+    Regex("^/api/slides/[a-f0-9-]+$", RegexOption.IGNORE_CASE).matches(path) -> "🔗 在线查看 PPT"
+    Regex("^/api/exports/[\\w\\-.]+/download$").matches(path) -> "📄 下载文件"
+    Regex("^/(api|share|images|videos|documents|templates)/").containsMatchIn(path) -> path
+    else -> null
+}
 
 /** Markdown 图片语法 ![alt](url)；AI 生成图片的回复里就是这种 */
 private val IMAGE_REGEX = Regex("!\\[[^\\]]*\\]\\(([^)\\s]+)\\)")

@@ -1,9 +1,7 @@
 package com.zai.app.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
@@ -25,26 +23,14 @@ private val DarkScheme = darkColorScheme(
     error = Color(0xFFEF4444),
 )
 
-private val LightScheme = lightColorScheme(
-    primary = Color(0xFF059669),
-    onPrimary = Color.White,
-    secondary = Color(0xFFB45309),
-    background = Color(0xFFF4F5F6),
-    onBackground = Color(0xFF191A1C),
-    surface = Color.White,
-    onSurface = Color(0xFF191A1C),
-    surfaceVariant = Color(0xFFE9EAEC),
-    onSurfaceVariant = Color(0xFF5F6368),
-    outline = Color(0xFFC4C7CC),
-)
-
+/**
+ * 全局固定深色主题（WorkBuddy 风格按深色设计）。
+ * 不跟随系统浅色——避免部分机型浅色下输入文字对比度不足的问题。
+ */
 @Composable
-fun ZaiTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit,
-) {
+fun ZaiTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkScheme else LightScheme,
+        colorScheme = DarkScheme,
         content = content,
     )
 }

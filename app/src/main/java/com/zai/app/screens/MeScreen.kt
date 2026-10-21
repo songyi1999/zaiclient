@@ -91,7 +91,7 @@ fun MeScreen(onLogout: () -> Unit) {
                         modifier = Modifier.size(54.dp),
                     ) {
                         AlignmentCenterText(
-                            (user?.displayName ?: user?.username ?: "Z").take(1).uppercase(),
+                            (user?.displayName ?: user?.username ?: "文").take(1).uppercase(),
                         )
                     }
                     Spacer(Modifier.size(14.dp))

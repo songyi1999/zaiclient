@@ -20,6 +20,9 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,10 +48,10 @@ import com.zai.app.auth.Session
 import com.zai.app.net.Api
 import kotlinx.coroutines.launch
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
     // 之前记住过账号密码则自动回填
-    var serverUrl by remember { mutableStateOf(Session.serverUrl) }
     var username by remember { mutableStateOf(Session.rememberedUsername ?: "") }
     var password by remember { mutableStateOf(Session.rememberedPassword ?: "") }
     var rememberPassword by remember { mutableStateOf(Session.rememberedPassword != null) }
@@ -57,6 +60,11 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    // 服务器下拉：预置两套环境；当前值不在列表里（历史自定义地址）也照常展示
+    val serverOptions = listOf("http://47.240.44.238:8831", "http://zai.xinpanmen.com:9002")
+    var serverUrl by remember { mutableStateOf(Session.serverUrl) }
+    var serverMenuOpen by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -73,7 +81,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             modifier = Modifier.size(56.dp),
         )
         Spacer(Modifier.height(12.dp))
-        Text("ZAI 工作台", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text("文语工作台", fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Text(
             "企业智能共享平台",
             fontSize = 14.sp,
@@ -139,14 +147,38 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             Spacer(Modifier.weight(1f))
         }
         if (showAdvanced) {
-            OutlinedTextField(
-                value = serverUrl,
-                onValueChange = { serverUrl = it },
-                label = { Text("服务器地址") },
-                placeholder = { Text(Session.DEFAULT_SERVER) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            ExposedDropdownMenuBox(
+                expanded = serverMenuOpen,
+                onExpandedChange = { serverMenuOpen = it },
+            ) {
+                OutlinedTextField(
+                    value = serverUrl,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("服务器") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = serverMenuOpen)
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
+                )
+                ExposedDropdownMenu(
+                    expanded = serverMenuOpen,
+                    onDismissRequest = { serverMenuOpen = false },
+                ) {
+                    serverOptions.forEach { opt ->
+                        DropdownMenuItem(
+                            text = { Text(opt) },
+                            onClick = {
+                                serverUrl = opt
+                                serverMenuOpen = false
+                            },
+                        )
+                    }
+                }
+            }
         }
 
         if (error != null) {

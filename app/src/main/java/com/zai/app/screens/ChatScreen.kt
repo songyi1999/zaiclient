@@ -665,7 +665,7 @@ private fun MessageItem(msg: Message, streamInfo: String = "") {
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        "Z",
+                        "文",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,

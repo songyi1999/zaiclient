@@ -180,7 +180,7 @@ fun ChatHomeScreen(
                     }
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("ZAI 工作台", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("文语工作台", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 Modifier
@@ -226,7 +226,7 @@ fun ChatHomeScreen(
                         }
                     }
                     Spacer(Modifier.height(20.dp))
-                    Text("ZAI，我帮你", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                    Text("文语，我帮你", fontSize = 30.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
                     Text(
                         "${greeting()}，今天要做点什么？",
@@ -299,7 +299,7 @@ fun ChatHomeScreen(
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
-                        placeholder = { Text("发消息，问问 ZAI…") },
+                        placeholder = { Text("发消息，问问文语…") },
                         shape = RoundedCornerShape(26.dp),
                         maxLines = 4,
                         modifier = Modifier.weight(1f),
@@ -389,7 +389,7 @@ private fun AppDrawerContent(
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(28.dp))
-        Text("ZAI 工作台", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("文语工作台", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
         OutlinedButton(
             onClick = onNewChat,

@@ -69,11 +69,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zai.app.data.ConvosStore
 import com.zai.app.data.Message
 import com.zai.app.data.Skill
+import com.zai.app.data.SkillsStore
 import com.zai.app.net.Api
 import com.zai.app.net.ChatEvent
 import com.zai.app.ui.MarkdownText
 import com.zai.app.ui.PendingInput
 import com.zai.app.ui.PlusMenuSheet
+import com.zai.app.ui.SkillPickerSheet
 import com.zai.app.ui.rememberAttachmentPicker
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -104,16 +106,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     val attachments = MutableStateFlow<List<AttachChip>>(emptyList())
     val selectedSkill = MutableStateFlow<Skill?>(null)
-    val skills = MutableStateFlow<List<Skill>>(emptyList())
-    val skillsLoading = MutableStateFlow(false)
 
-    /** 流状态（连接中… / 已连接 · N字 · 心跳N）——诊断 + 进度展示 */
+    /** 流状态（连接中… / 已连接 · N字）——诊断 + 进度展示 */
     val streamInfo = MutableStateFlow("")
 
     private var chatJob: Job? = null
     private var autoSent = false
     private var historyRequested = false
-    private var skillsLoaded = false
 
     fun init(idArg: String?, prompt: String?) {
         val existing = idArg?.takeIf { it != "new" }
@@ -122,9 +121,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             historyRequested = true
             loadHistory()
         }
-        // 首页 "+" 选好的附件：进入聊天页即开始上传（不等发送）
+        // 首页 "+" 选好的附件与技能：进入聊天页即生效（附件立刻上传）
         val pending = PendingInput.consumeUris()
         if (pending.isNotEmpty()) addAttachments(pending)
+        PendingInput.consumeSkill()?.let { selectedSkill.value = it }
         if (!autoSent && !prompt.isNullOrBlank() && messages.value.none { it.role == "USER" }) {
             autoSent = true
             send(prompt)
@@ -183,22 +183,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** 拍照完成的本地文件 → 上传 */
     fun addCameraPhoto(file: File) = addAttachments(listOf(Uri.fromFile(file)))
 
-    fun removeAttachment(chip: AttachChip) {        attachments.value = attachments.value.filterNot { it.localId == chip.localId }
+    fun removeAttachment(chip: AttachChip) {
+        attachments.value = attachments.value.filterNot { it.localId == chip.localId }
         chip.remoteId?.let { id ->
             viewModelScope.launch { runCatching { Api.deleteAttachment(id) } }
-        }
-    }
-
-    fun loadSkills() {
-        if (skillsLoaded) return
-        viewModelScope.launch {
-            skillsLoading.value = true
-            runCatching { Api.skills() }
-                .onSuccess {
-                    skills.value = it
-                    skillsLoaded = true
-                }
-            skillsLoading.value = false
         }
     }
 
@@ -401,8 +389,6 @@ fun ChatScreen(
     val loadingHistory by vm.loadingHistory.collectAsState()
     val attachments by vm.attachments.collectAsState()
     val selectedSkill by vm.selectedSkill.collectAsState()
-    val skills by vm.skills.collectAsState()
-    val skillsLoading by vm.skillsLoading.collectAsState()
     val streamInfo by vm.streamInfo.collectAsState()
     // 首页带过来的草稿只作为初始输入，不自动发送
     var input by remember { mutableStateOf(PendingInput.consumeDraft()) }
@@ -631,73 +617,21 @@ fun ChatScreen(
             },
             onPickSkill = {
                 showPlusSheet = false
-                vm.loadSkills()
+                SkillsStore.load()
                 showSkillSheet = true
             },
         )
     }
 
-    // 技能列表
+    // 技能列表（与首页共用的弹层组件）
     if (showSkillSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showSkillSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Text(
-                "选择技能",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-            )
-            if (skillsLoading && skills.isEmpty()) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator(Modifier.size(22.dp)) }
-            } else if (skills.isEmpty()) {
-                Text(
-                    "暂无可用技能",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            } else {
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    itemsIndexed(skills, key = { _, s -> s.id }) { _, s ->
-                        ListItem(
-                            headlineContent = { Text(s.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = {
-                                if (s.description.isNotBlank()) {
-                                    Text(
-                                        s.description,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        fontSize = 12.sp,
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    vm.selectedSkill.value = s
-                                    showSkillSheet = false
-                                },
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                    }
-                }
-            }
-            TextButton(
-                onClick = { showSkillSheet = false },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-            ) { Text("取消") }
-        }
+        SkillPickerSheet(
+            onDismiss = { showSkillSheet = false },
+            onSelect = { skill ->
+                vm.selectedSkill.value = skill
+                showSkillSheet = false
+            },
+        )
     }
 }
 

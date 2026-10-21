@@ -71,8 +71,10 @@ import androidx.compose.ui.unit.sp
 import com.zai.app.auth.Session
 import com.zai.app.data.ConvosStore
 import com.zai.app.data.Conversation
+import com.zai.app.data.SkillsStore
 import com.zai.app.ui.PendingInput
 import com.zai.app.ui.PlusMenuSheet
+import com.zai.app.ui.SkillPickerSheet
 import com.zai.app.ui.rememberAttachmentPicker
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -124,6 +126,7 @@ fun ChatHomeScreen(
         input = ""
         onStartWithDraft()
     }
+    var showSkillSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { ConvosStore.refresh() }
 
@@ -332,7 +335,7 @@ fun ChatHomeScreen(
         }
     }
 
-    // + 号菜单：拍照 / 相册 / 文件（技能选择在聊天页内）
+    // + 号菜单：拍照 / 相册 / 文件 / 技能
     if (showPlusSheet) {
         PlusMenuSheet(
             onDismiss = { showPlusSheet = false },
@@ -347,6 +350,25 @@ fun ChatHomeScreen(
             onPickFiles = {
                 showPlusSheet = false
                 picker.launchFiles()
+            },
+            onPickSkill = {
+                showPlusSheet = false
+                SkillsStore.load()
+                showSkillSheet = true
+            },
+        )
+    }
+
+    // 技能选择：选中后带草稿进聊天页，技能芯片预置
+    if (showSkillSheet) {
+        SkillPickerSheet(
+            onDismiss = { showSkillSheet = false },
+            onSelect = { skill ->
+                showSkillSheet = false
+                PendingInput.skill = skill
+                PendingInput.draft = input.trim()
+                input = ""
+                onStartWithDraft()
             },
         )
     }

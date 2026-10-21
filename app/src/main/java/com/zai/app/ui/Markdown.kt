@@ -21,11 +21,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,12 +82,32 @@ private fun parseMarkdown(content: String): List<Block> {
     return blocks
 }
 
-/** 行内样式：`code`、**bold**、*italic*、~~strike~~ */
-fun markdownInline(text: String): AnnotatedString = buildAnnotatedString {
+/** 行内样式：`code`、**bold**、*italic*、~~strike~~、可点击的 http(s) 链接 */
+fun markdownInline(text: String, linkColor: Color = Color.Unspecified): AnnotatedString = buildAnnotatedString {
     var i = 0
     val s = text
     while (i < s.length) {
         when {
+            (s.startsWith("http://", i) || s.startsWith("https://", i)) -> {
+                // 吃掉从当前位置开始的整段 URL，去掉粘在末尾的标点
+                val m = URL_AT_START.find(s.substring(i))
+                var url = m?.value ?: s.substring(i)
+                url = url.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}', '）', '】', '」', '。', '，', '、')
+                if (url.length < 12) {
+                    append(s[i]); i++
+                } else {
+                    val styles = if (linkColor == Color.Unspecified) null
+                    else TextLinkStyles(
+                        SpanStyle(
+                            color = linkColor,
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        ),
+                    )
+                    withLink(LinkAnnotation.Url(url, styles)) { append(url) }
+                    i += url.length
+                }
+            }
+
             s.startsWith("`", i) -> {
                 val end = s.indexOf('`', i + 1)
                 if (end > i) {
@@ -132,6 +155,8 @@ fun markdownInline(text: String): AnnotatedString = buildAnnotatedString {
     }
 }
 
+private val URL_AT_START = Regex("^https?://[^\\s<>\"'\\[\\]()]+")
+
 /** Markdown 图片语法 ![alt](url)；AI 生成图片的回复里就是这种 */
 private val IMAGE_REGEX = Regex("!\\[[^\\]]*\\]\\(([^)\\s]+)\\)")
 
@@ -143,6 +168,7 @@ private fun resolveImageUrl(url: String): String =
 fun MarkdownText(content: String, modifier: Modifier = Modifier) {
     // 点击图片后的全屏预览
     var previewUrl by remember { mutableStateOf<String?>(null) }
+    val linkColor = MaterialTheme.colorScheme.primary
 
     Column(modifier = modifier) {
         parseMarkdown(content).forEach { block ->
@@ -174,7 +200,7 @@ fun MarkdownText(content: String, modifier: Modifier = Modifier) {
                                 val before = line.substring(cursor, m.range.first).trim()
                                 if (before.isNotBlank()) {
                                     Text(
-                                        text = markdownInline(before),
+                                        text = markdownInline(before, linkColor),
                                         modifier = Modifier.padding(bottom = 1.dp),
                                     )
                                 }
@@ -186,7 +212,7 @@ fun MarkdownText(content: String, modifier: Modifier = Modifier) {
                             }
                             val after = line.substring(cursor).trim()
                             if (after.isNotBlank()) {
-                                Text(text = markdownInline(after), modifier = Modifier.padding(bottom = 1.dp))
+                                Text(text = markdownInline(after, linkColor), modifier = Modifier.padding(bottom = 1.dp))
                             }
                             return@forEach
                         }
@@ -196,7 +222,7 @@ fun MarkdownText(content: String, modifier: Modifier = Modifier) {
                             heading != null -> {
                                 val level = heading.groupValues[1].length.coerceAtMost(3)
                                 Text(
-                                    text = markdownInline(heading.groupValues[2]),
+                                    text = markdownInline(heading.groupValues[2], linkColor),
                                     fontSize = (18 - level * 2).sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
@@ -207,7 +233,7 @@ fun MarkdownText(content: String, modifier: Modifier = Modifier) {
                                 Text(
                                     text = buildAnnotatedString {
                                         append("•  ")
-                                        append(markdownInline(bullet.groupValues[1]))
+                                        append(markdownInline(bullet.groupValues[1], linkColor))
                                     },
                                     modifier = Modifier.padding(start = 4.dp, bottom = 1.dp),
                                 )
@@ -218,7 +244,7 @@ fun MarkdownText(content: String, modifier: Modifier = Modifier) {
                             )
 
                             else -> Text(
-                                text = markdownInline(line),
+                                text = markdownInline(line, linkColor),
                                 modifier = Modifier.padding(bottom = 1.dp),
                             )
                         }

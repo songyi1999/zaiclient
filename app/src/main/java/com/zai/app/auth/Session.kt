@@ -22,15 +22,27 @@ object Session {
     var serverUrl by mutableStateOf("")
         private set
 
+    /** 外观主题：light（默认）| dark */
+    var themeMode by mutableStateOf("light")
+        private set
+
     /** 服务器地址变更（未登录时在登录页修改、登录后在设置页修改都会走到这里） */
     var serverUrlChanged by mutableStateOf(0)
         private set
+
+    fun updateTheme(mode: String) {
+        if (mode != "light" && mode != "dark") return
+        if (mode == themeMode) return
+        prefs.edit().putString("themeMode", mode).apply()
+        themeMode = mode
+    }
 
     private val lock = Any()
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences("zai_session", Context.MODE_PRIVATE)
         serverUrl = prefs.getString("serverUrl", DEFAULT_SERVER) ?: DEFAULT_SERVER
+        themeMode = prefs.getString("themeMode", "light") ?: "light"
         val access = prefs.getString("accessToken", null)
         val refresh = prefs.getString("refreshToken", null)
         if (access != null && refresh != null) {

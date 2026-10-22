@@ -97,11 +97,16 @@ fun AppRoot() {
         }
     }
 
-    // WorkBuddy 式外观：纯黑底上浮一块顶部圆角的内容面板，底部导航与之同色
+    // WorkBuddy 式外观：底板色上浮一块顶部圆角的内容面板，底部导航与之同色
+    val backdrop = if (Session.themeMode == "dark") {
+        com.zai.app.ui.PanelBackdropDark
+    } else {
+        com.zai.app.ui.PanelBackdropLight
+    }
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(backdrop),
     ) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) {

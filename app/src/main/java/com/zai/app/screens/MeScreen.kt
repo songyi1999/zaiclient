@@ -16,7 +16,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -54,6 +56,7 @@ import com.zai.app.ui.UpdateCheckRow
 @Composable
 fun MeScreen(onLogout: () -> Unit) {
     var showServerDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var serverUrl by remember { mutableStateOf(Session.serverUrl) }
     val user = Session.user
 
@@ -120,13 +123,32 @@ fun MeScreen(onLogout: () -> Unit) {
             }
 
             Spacer(Modifier.height(14.dp))
-            // 设置卡：服务器 + 检查更新
+            // 设置卡：外观 + 服务器 + 检查更新
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column {
+                    ListItem(
+                        headlineContent = { Text("外观") },
+                        supportingContent = {
+                            Text(if (Session.themeMode == "dark") "深色" else "浅色")
+                        },
+                        leadingContent = {
+                            Icon(Icons.Filled.Palette, contentDescription = null)
+                        },
+                        trailingContent = {
+                            Text(
+                                "切换",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(onClick = { showThemeDialog = true }),
+                    )
                     ListItem(
                         headlineContent = { Text("服务器地址") },
                         supportingContent = {
@@ -206,6 +228,42 @@ fun MeScreen(onLogout: () -> Unit) {
 
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("外观") },
+            text = {
+                Column {
+                    listOf("light" to "浅色", "dark" to "深色").forEach { (mode, label) ->
+                        ListItem(
+                            headlineContent = { Text(label) },
+                            trailingContent = if (Session.themeMode == mode) {
+                                {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(onClick = {
+                                    Session.updateTheme(mode)
+                                    showThemeDialog = false
+                                }),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) { Text("取消") }
+            },
+        )
     }
 
     if (showServerDialog) {

@@ -82,12 +82,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         )
         Spacer(Modifier.height(12.dp))
         Text("文语工作台", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "企业智能共享平台",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
         Spacer(Modifier.height(40.dp))
 
         OutlinedTextField(

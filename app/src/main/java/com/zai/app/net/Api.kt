@@ -315,6 +315,32 @@ object Api {
         }
     }
 
+    /** 模板库（GET /api/templates） */
+    suspend fun templates(): List<com.zai.app.data.Template> = withContext(Dispatchers.IO) {
+        val resp = authedGet("/templates")
+        resp.use {
+            if (!it.isSuccessful) throw ApiException(it.code, errorMessage(it.body?.string(), "获取模板失败"))
+            val arr = JSONArray(it.body!!.string())
+            (0 until arr.length()).map { com.zai.app.data.Template.fromJson(arr.getJSONObject(it)) }
+        }
+    }
+
+    /** 知识库语义搜索（POST /api/knowledge/search） */
+    suspend fun knowledgeSearch(query: String): List<com.zai.app.data.KnowledgeResult> =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject().put("query", query).put("limit", 20).toString().toRequestBody(JSON)
+            val req = Request.Builder()
+                .url("${Session.apiBase}/knowledge/search")
+                .post(body)
+                .build()
+            val resp = authedClient.newCall(req).execute()
+            resp.use {
+                if (!it.isSuccessful) throw ApiException(it.code, errorMessage(it.body?.string(), "搜索失败"))
+                val arr = JSONArray(it.body!!.string())
+                (0 until arr.length()).map { com.zai.app.data.KnowledgeResult.fromJson(arr.getJSONObject(it)) }
+            }
+        }
+
     // -------------------------------------------------------------- helpers
 
     private fun authedGet(path: String): Response =

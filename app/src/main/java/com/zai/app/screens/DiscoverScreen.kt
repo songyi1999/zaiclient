@@ -1,5 +1,6 @@
 package com.zai.app.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -13,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ViewQuilt
@@ -27,18 +27,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.combinedClickable
-import com.zai.app.auth.Session
 
-/** 「发现」Tab：对话记录入口 + 服务器信息 + 即将上线的能力预览 */
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+/** 「发现」Tab：对话记录 + 资料库/技能中心/模板库入口 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiscoverScreen(onOpenTab: (route: String) -> Unit) {
+fun DiscoverScreen(
+    onOpenTab: (route: String) -> Unit,
+    onOpenSub: (route: String) -> Unit,
+) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -66,21 +66,11 @@ fun DiscoverScreen(onOpenTab: (route: String) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column {
-                    ListItem(
-                        headlineContent = { Text("对话记录") },
-                        leadingContent = {
-                            Icon(Icons.Filled.History, contentDescription = null)
-                        },
-                        trailingContent = {
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(onClick = { onOpenTab("records") }),
+                    DiscoverItem(
+                        icon = Icons.Filled.History,
+                        title = "对话记录",
+                        onClick = { onOpenTab("records") },
+                        first = true,
                     )
                 }
             }
@@ -92,31 +82,25 @@ fun DiscoverScreen(onOpenTab: (route: String) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column {
-                    ComingSoonItem(Icons.Filled.Folder, "资料库")
-                    ComingSoonItem(Icons.Filled.AutoAwesome, "技能中心")
-                    ComingSoonItem(Icons.Filled.ViewQuilt, "模板库")
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column {
-                    ListItem(
-                        headlineContent = { Text("服务器") },
-                        supportingContent = {
-                            Text(
-                                Session.serverUrl,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        leadingContent = {
-                            Icon(Icons.Filled.Dns, contentDescription = null)
-                        },
+                    DiscoverItem(
+                        icon = Icons.Filled.Folder,
+                        title = "资料库",
+                        subtitle = "语义检索企业知识库",
+                        onClick = { onOpenSub("knowledge") },
+                        first = true,
+                    )
+                    DiscoverItem(
+                        icon = Icons.Filled.AutoAwesome,
+                        title = "技能中心",
+                        subtitle = "查看可用技能并在对话中使用",
+                        onClick = { onOpenSub("skills") },
+                    )
+                    DiscoverItem(
+                        icon = Icons.Filled.ViewQuilt,
+                        title = "模板库",
+                        subtitle = "常用工作模板一键带入对话",
+                        onClick = { onOpenSub("templates") },
+                        last = true,
                     )
                 }
             }
@@ -125,17 +109,42 @@ fun DiscoverScreen(onOpenTab: (route: String) -> Unit) {
 }
 
 @Composable
-private fun ComingSoonItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+private fun DiscoverItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    onClick: () -> Unit,
+    first: Boolean = false,
+    last: Boolean = false,
+) {
     ListItem(
-        headlineContent = { Text(label) },
+        headlineContent = { Text(title) },
+        supportingContent = subtitle?.let {
+            {
+                Text(
+                    it,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 12.sp,
+                )
+            }
+        },
         leadingContent = { Icon(icon, contentDescription = null) },
         trailingContent = {
-            Text(
-                "即将上线",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        modifier = Modifier.alpha(0.55f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
     )
+    if (!last) {
+        androidx.compose.material3.HorizontalDivider(
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+            modifier = Modifier.padding(start = 70.dp),
+        )
+    }
 }

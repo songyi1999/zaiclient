@@ -112,4 +112,10 @@ object Session {
     }
 
     const val DEFAULT_SERVER = "http://zai.xinpanmen.com:9002"
+
+    /** 登录页/我的页共用的服务器下拉选项 */
+    val SERVER_OPTIONS = listOf(
+        "http://47.240.44.238:8831",
+        "http://zai.xinpanmen.com:9002",
+    )
 }

@@ -84,12 +84,58 @@ data class Skill(
     val id: String,
     val name: String,
     val description: String,
+    val scope: String = "",     // GLOBAL | ADMIN_PUSHED | USER
 ) {
+    val scopeLabel: String
+        get() = when (scope) {
+            "GLOBAL" -> "全局技能"
+            "ADMIN_PUSHED" -> "管理员推送"
+            "USER" -> "我的技能"
+            else -> "技能"
+        }
+
     companion object {
         fun fromJson(o: JSONObject): Skill = Skill(
             id = o.optString("id"),
             name = o.optString("name").ifBlank { "未命名技能" },
             description = o.optString("description"),
+            scope = o.optString("scope"),
+        )
+    }
+}
+
+/** 模板（GET /api/templates），使用时把 content 带入聊天输入框 */
+data class Template(
+    val id: String,
+    val title: String,
+    val description: String,
+    val content: String,
+    val category: String,
+) {
+    companion object {
+        fun fromJson(o: JSONObject): Template = Template(
+            id = o.optString("id"),
+            title = o.optString("title").ifBlank { "未命名模板" },
+            description = o.optString("description"),
+            content = o.optString("content"),
+            category = o.optString("category").ifBlank { "未分类" },
+        )
+    }
+}
+
+/** 知识库语义搜索结果（POST /api/knowledge/search） */
+data class KnowledgeResult(
+    val documentTitle: String,
+    val snippet: String,
+    val similarity: Double,
+    val ownerName: String,
+) {
+    companion object {
+        fun fromJson(o: JSONObject): KnowledgeResult = KnowledgeResult(
+            documentTitle = o.optString("documentTitle").ifBlank { "未命名文档" },
+            snippet = o.optString("snippet").ifBlank { o.optString("content") },
+            similarity = o.optDouble("similarity", 0.0),
+            ownerName = o.optString("ownerName"),
         )
     }
 }

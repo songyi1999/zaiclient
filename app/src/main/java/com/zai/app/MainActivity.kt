@@ -43,8 +43,11 @@ import com.zai.app.screens.ChatHomeScreen
 import com.zai.app.screens.ChatScreen
 import com.zai.app.screens.ConversationsScreen
 import com.zai.app.screens.DiscoverScreen
+import com.zai.app.screens.KnowledgeScreen
 import com.zai.app.screens.LoginScreen
 import com.zai.app.screens.MeScreen
+import com.zai.app.screens.SkillsScreen
+import com.zai.app.screens.TemplatesScreen
 import com.zai.app.ui.UpdateDialog
 import com.zai.app.ui.ZaiTheme
 import com.zai.app.ui.silentCheck
@@ -139,7 +142,36 @@ fun AppRoot() {
                     }
 
                     composable("discover") {
-                        DiscoverScreen(onOpenTab = { route -> goTab(route) })
+                        DiscoverScreen(
+                            onOpenTab = { route -> goTab(route) },
+                            onOpenSub = { route -> nav.navigate(route) },
+                        )
+                    }
+
+                    composable("skills") {
+                        SkillsScreen(
+                            onBack = { nav.popBackStack() },
+                            onUseSkill = {
+                                nav.navigate("chat/new") {
+                                    popUpTo("home")
+                                }
+                            },
+                        )
+                    }
+
+                    composable("knowledge") {
+                        KnowledgeScreen(onBack = { nav.popBackStack() })
+                    }
+
+                    composable("templates") {
+                        TemplatesScreen(
+                            onBack = { nav.popBackStack() },
+                            onUseTemplate = {
+                                nav.navigate("chat/new") {
+                                    popUpTo("home")
+                                }
+                            },
+                        )
                     }
 
                     composable("me") {

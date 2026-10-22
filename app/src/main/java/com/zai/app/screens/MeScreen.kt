@@ -20,7 +20,10 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -206,22 +209,62 @@ fun MeScreen(onLogout: () -> Unit) {
     }
 
     if (showServerDialog) {
+        // 与登录页"高级"一致的下拉选择；切换服务器后需重新登录
+        var menuOpen by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showServerDialog = false },
-            title = { Text("服务器地址") },
+            title = { Text("切换服务器") },
             text = {
-                OutlinedTextField(
-                    value = serverUrl,
-                    onValueChange = { serverUrl = it },
-                    placeholder = { Text(Session.DEFAULT_SERVER) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column {
+                    ExposedDropdownMenuBox(
+                        expanded = menuOpen,
+                        onExpandedChange = { menuOpen = it },
+                    ) {
+                        OutlinedTextField(
+                            value = serverUrl,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("服务器") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = menuOpen)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false },
+                        ) {
+                            Session.SERVER_OPTIONS.forEach { opt ->
+                                DropdownMenuItem(
+                                    text = { Text(opt) },
+                                    onClick = {
+                                        serverUrl = opt
+                                        menuOpen = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "切换服务器后需要重新登录（两套环境账号不通用）",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
+                    val changed = serverUrl.trimEnd('/') != Session.serverUrl.trimEnd('/')
                     Session.updateServerUrl(serverUrl)
                     showServerDialog = false
+                    if (changed) {
+                        Session.logout()
+                        onLogout()
+                    }
                 }) { Text("保存") }
             },
             dismissButton = {

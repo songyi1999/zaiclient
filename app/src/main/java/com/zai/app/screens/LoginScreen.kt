@@ -62,7 +62,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     // 服务器下拉：预置两套环境；当前值不在列表里（历史自定义地址）也照常展示
-    val serverOptions = listOf("http://47.240.44.238:8831", "http://zai.xinpanmen.com:9002")
+    val serverOptions = Session.SERVER_OPTIONS
     var serverUrl by remember { mutableStateOf(Session.serverUrl) }
     var serverMenuOpen by remember { mutableStateOf(false) }
 
